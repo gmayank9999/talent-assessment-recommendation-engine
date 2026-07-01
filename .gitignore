@@ -1,0 +1,30 @@
+# env and secrets
+.env
+*.env
+
+# python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+# embeddings (rebuilt from catalog, but small enough to commit)
+# data/embeddings.npz
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+Thumbs.db
+.DS_Store
+
+# assignment files -- not part of the deliverable
+SHL_AI_Intern_Assignment.pdf
+Implementation_Plan_Final.md
