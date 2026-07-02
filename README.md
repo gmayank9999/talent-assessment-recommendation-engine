@@ -1,6 +1,8 @@
-# SHL Assessment Recommendation Engine
+# Talent Assessment Recommendation Engine
 
-A conversational agent that recommends SHL Individual Test Solutions through multi-turn dialogue. Built as a stateless FastAPI service backed by hybrid retrieval (semantic search + keyword matching + business rules) and Groq-hosted LLM reasoning.
+A conversational AI agent that recommends technical and behavioral assessments through multi-turn dialogue. Built as a stateless FastAPI service backed by hybrid retrieval (semantic search + keyword matching + business rules) and Groq-hosted LLM reasoning.
+
+**Live Demo:** [https://talent-assessment-recommendation-engine.onrender.com](https://talent-assessment-recommendation-engine.onrender.com) (Expect a ~40s cold start if the free tier is asleep).
 
 ## Architecture
 
@@ -14,7 +16,7 @@ User -> FastAPI /chat
     Intent Classifier (rule-based: CLARIFY/RECOMMEND/REFINE/COMPARE/REFUSE/CONFIRM)
           |
     Hybrid Retrieval Engine
-      - Semantic vector search (ChromaDB + all-MiniLM-L6-v2)
+      - Semantic vector search (all-MiniLM-L6-v2)
       - Keyword/exact match boost
       - Business rule hard filters
       - Weighted candidate ranking
@@ -28,57 +30,42 @@ User -> FastAPI /chat
     JSON Response
 ```
 
-## Setup
+## Setup & Deployment
 
-### Prerequisites
+### Run Locally
 
-- Python 3.11+
-- A Groq API key (free tier works)
+1. **Prerequisites**: Python 3.11+, Groq API key (free tier works)
+2. **Install**:
+   ```bash
+   git clone https://github.com/gmayank9999/talent-assessment-recommendation-engine.git
+   cd talent-assessment-recommendation-engine
+   python -m venv venv
+   source venv/bin/activate  # Windows: venv\Scripts\activate
+   pip install -r requirements.txt
+   ```
+3. **Set API Key**: Create a `.env` file and add `GROQ_API_KEY=your_key_here`
+4. **Build Vector Index**: `python scripts/build_index.py` (Runs once to index catalog)
+5. **Start Server**: `uvicorn app.main:app --reload --port 8000`
 
-### Installation
+### Deploy on Render (Free Tier)
 
-```bash
-# clone the repo
-git clone https://github.com/gmayank9999/talent-assessment-recommendation-engine.git
-cd talent-assessment-recommendation-engine
+This repository includes a `render.yaml` blueprint. To deploy:
+1. Connect this GitHub repo in Render.
+2. The blueprint will auto-configure a Python 3.11 environment.
+3. Add `GROQ_API_KEY` in the Render Environment Variables tab.
+4. Deploy! The build script (`build.sh`) uses CPU-only PyTorch to stay within free-tier limits.
 
-# create virtual environment
-python -m venv venv
-source venv/bin/activate  # or venv\Scripts\activate on Windows
-
-# install dependencies
-pip install -r requirements.txt
-
-# set up environment variables
-cp .env.example .env
-# edit .env and add your GROQ_API_KEY
-```
-
-### Build the vector index
-
-```bash
-python scripts/build_index.py
-```
-
-This builds the ChromaDB index from the product catalog. Only needs to run once (or when the catalog changes).
-
-### Run the server
-
-```bash
-uvicorn app.main:app --reload --port 8000
-```
-
-### API Endpoints
+## API Usage
 
 **GET /health**
 ```bash
-curl http://localhost:8000/health
+curl https://talent-assessment-recommendation-engine.onrender.com/health
 # {"status": "ok"}
 ```
 
 **POST /chat**
 ```bash
-curl -X POST http://localhost:8000/chat \
+curl -X POST https://talent-assessment-recommendation-engine.onrender.com/chat \
   -H "Content-Type: application/json" \
   -d '{
     "messages": [
@@ -90,44 +77,21 @@ curl -X POST http://localhost:8000/chat \
 Response:
 ```json
 {
-  "reply": "...",
+  "reply": "For a senior Java developer, I recommend...",
   "recommendations": [
-    {"name": "Core Java (Advanced Level) (New)", "url": "https://www.shl.com/...", "test_type": "K"}
+    {"name": "Core Java (Advanced Level) (New)", "url": "https://...", "test_type": "K"}
   ],
   "end_of_conversation": false
 }
 ```
 
-### Run tests
-
-```bash
-# unit tests (no server required)
-pytest tests/test_conversation_parser.py -v
-
-# trace replay (requires running server)
-pytest tests/test_trace_replay.py -v
-```
-
-### Docker
-
-```bash
-docker build -t shl-recommender .
-docker run -p 8000:8000 -e GROQ_API_KEY=your_key shl-recommender
-```
-
 ## Key Design Decisions
 
-1. **Stateless architecture**: every /chat call receives the full conversation history. No server-side session state.
-
-2. **Conversation state machine**: six deterministic states (CLARIFY, RECOMMEND, REFINE, COMPARE, REFUSE, CONFIRM) with rule-based classification. No second LLM call for intent detection.
-
-3. **Hybrid retrieval**: combines semantic search, keyword matching, and business-rule filtering. Pure semantic search confuses similar products (e.g., Core Java Entry vs Advanced) and dilutes attention on multi-technology JDs.
-
-4. **OPQ32r default inclusion**: personality assessment is included by default for professional/technical roles (matching trace behavior across C1, C2, C4, C5, C7, C8, C9) with an explicit opt-out offer.
-
-5. **Post-processor + validator separation**: normalization (URL formatting, canonical names) is handled separately from correctness checks (catalog membership). Makes both independently testable.
-
-6. **`recommendations: null` vs `[]`**: uses null (matching the 10 reference traces) rather than empty array (mentioned in the spec). Documented as a deliberate design decision.
+1. **Stateless architecture**: Every `/chat` call receives the full conversation history. No server-side session state is maintained.
+2. **Conversation state machine**: Six deterministic states (CLARIFY, RECOMMEND, REFINE, COMPARE, REFUSE, CONFIRM) with rule-based classification. This prevents unpredictable LLM loops.
+3. **Hybrid retrieval**: Combines semantic search, keyword matching, and business-rule filtering. Pure semantic search often confuses structurally similar products (e.g., Core Java Entry vs Advanced) and dilutes attention on multi-technology JDs.
+4. **Post-processor + validator separation**: Normalization (URL formatting, canonical names) is handled separately from correctness checks (strict catalog membership). Makes both independently testable.
+5. **Anti-Hallucination Gate**: The validator intercepts the LLM's response right before returning to the user and strips any URL or assessment name that does not strictly exist in the offline catalog dataset.
 
 ## Project Structure
 
@@ -144,11 +108,10 @@ app/
   reasoning.py           # modular prompt assembly and LLM call
   post_processor.py      # recommendation normalization
   validator.py           # hallucination prevention gate
-data/
-  chroma_index/          # persisted vector index (built from catalog)
 scripts/
   build_index.py         # one-time index builder
 tests/
+  demo.py                # Interactive CLI for testing all chat states
   test_conversation_parser.py  # unit tests
-  test_trace_replay.py         # trace replay against live service
+  test_trace_replay.py         # integration test harness
 ```
